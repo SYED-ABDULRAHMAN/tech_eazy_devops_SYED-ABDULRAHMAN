@@ -111,13 +111,13 @@ variable "s3_bucket_name" {
 variable "app_jar_bucket_name" {
   description = "S3 bucket name to store the JAR"
   type        = string
-  default     = "app_jar_bucket-13131435"
+  default     = "app-jar-bucket-13131435"
 }
 
 variable "elb_logs_bucket_name" {
   description = "S3 bucket for storing ALB logs"
   type        = string
-  default     = "elb_logs_bucket-3513564634"
+  default     = "elb-logs-bucket-3513564634"
 }
 
 variable "instance_count" {
