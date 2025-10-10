@@ -93,7 +93,7 @@ variable "jar_file_name" {
 variable "create_elastic_ip" {
   description = "Whether to create and assign an Elastic IP"
   type        = bool
-  default     = false
+  default     = True
 }
 
 # Networking Configuration
