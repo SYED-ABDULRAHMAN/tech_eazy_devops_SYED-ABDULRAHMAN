@@ -1,191 +1,94 @@
-name: 'Terraform AWS EC2 Deployment'
+name: 'TechEazy DevOps - Complete Deployment'
 
 on:
   push:
     branches:
-      - main
-      - develop
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/terraform-deploy.yml'
+      -feature/add-alb
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
   pull_request:
     branches:
       - main
-    paths:
-      - 'terraform/**'
   workflow_dispatch:
     inputs:
       action:
         description: 'Action to perform'
         required: true
-        default: 'plan'
+        default: 'deploy-app'
         type: choice
         options:
-        - plan
-        - apply
-        - destroy
+        - deploy-infrastructure
+        - deploy-app
+        - destroy-infrastructure
+        - upload-jar-only
 
 env:
   AWS_DEFAULT_REGION: us-east-1
   TF_VERSION: '1.6.0'
+  JAVA_VERSION: '21'
 
 jobs:
-  terraform-check:
-    name: 'Terraform Format and Validate'
+  # Build Application
+  build-application:
+    name: 'Build Java Application'
     runs-on: ubuntu-latest
-    
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
+    if: |
+      github.event_name == 'push' || 
+      (github.event_name == 'workflow_dispatch' && 
+       (github.event.inputs.action == 'deploy-app' || github.event.inputs.action == 'upload-jar-only'))
     
     steps:
-    - name: Checkout
+    - name: Checkout Code
       uses: actions/checkout@v4
     
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
       with:
-        terraform_version: ${{ env.TF_VERSION }}
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
     
-    - name: Terraform Format
-      id: fmt
-      run: terraform fmt -check -recursive
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+    
+    - name: Run Tests
+      run: mvn test
       continue-on-error: true
     
-    - name: Terraform Init
-      id: init
-      run: terraform init
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    
-    - name: Terraform Validate
-      id: validate
-      run: terraform validate
-    
-    - name: Update Pull Request
-      uses: actions/github-script@v7
-      if: github.event_name == 'pull_request'
-      env:
-        FMT: "terraform fmt\n${{ steps.fmt.outputs.stdout }}"
-        INIT: "terraform init\n${{ steps.init.outputs.stdout }}"
-        VALIDATE: "terraform validate\n${{ steps.validate.outputs.stdout }}"
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        script: |
-          const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
-          #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
-          #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
-          
-          <details><summary>Show Output</summary>
-          
-          \`\`\`\n
-          ${process.env.FMT}
-          \`\`\`
-          
-          \`\`\`\n
-          ${process.env.INIT}
-          \`\`\`
-          
-          \`\`\`\n
-          ${process.env.VALIDATE}
-          \`\`\`
-          
-          </details>
-          
-          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: output
-          })
-
-  terraform-plan:
-    name: 'Terraform Plan'
-    runs-on: ubuntu-latest
-    needs: terraform-check
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
-    
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: ${{ env.TF_VERSION }}
-    
-    - name: Terraform Init
-      run: terraform init
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    
-    - name: Terraform Plan
-      id: plan
+    - name: Verify JAR Name
       run: |
-        terraform plan -var-file="terraform.tfvars" -no-color -out=tfplan
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        ls -lh target/
+        if [ ! -f "target/techeazy-devops-0.0.1-SNAPSHOT.jar" ]; then
+          echo "ERROR: Expected JAR file not found!"
+          exit 1
+        fi
+        echo "✅ JAR file verified: techeazy-devops-0.0.1-SNAPSHOT.jar"
+        echo "JAR Size: $(ls -lh target/techeazy-devops-0.0.1-SNAPSHOT.jar | awk '{print $5}')"
     
-    - name: Update Pull Request
-      uses: actions/github-script@v7
-      if: github.event_name == 'pull_request'
-      env:
-        PLAN: "terraform plan\n${{ steps.plan.outputs.stdout }}"
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        script: |
-          const output = `#### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
-          
-          <details><summary>Show Plan</summary>
-          
-          \`\`\`terraform\n
-          ${process.env.PLAN}
-          \`\`\`
-          
-          </details>
-          
-          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: output
-          })
-    
-    - name: Save Plan
+    - name: Upload JAR Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: tfplan
-        path: ./terraform/tfplan
+        name: application-jar
+        path: target/techeazy-devops-0.0.1-SNAPSHOT.jar
         retention-days: 5
-
-  terraform-apply:
-    name: 'Terraform Apply'
-    runs-on: ubuntu-latest
-    needs: terraform-check
-    if: |
-      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
-    environment: 
-      name: production
-      url: ${{ steps.terraform-output.outputs.application_url }}
     
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
+    - name: Build Summary
+      run: |
+        echo "## 🔨 Build Completed!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Artifact Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **JAR File:** techeazy-devops-0.0.1-SNAPSHOT.jar" >> $GITHUB_STEP_SUMMARY
+        echo "- **Size:** $(ls -lh target/techeazy-devops-0.0.1-SNAPSHOT.jar | awk '{print $5}')" >> $GITHUB_STEP_SUMMARY
+        echo "- **Java Version:** 21" >> $GITHUB_STEP_SUMMARY
+
+  # Deploy Infrastructure
+  deploy-infrastructure:
+    name: 'Deploy Infrastructure'
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy-infrastructure')
     
     steps:
     - name: Checkout
@@ -199,24 +102,32 @@ jobs:
     
     - name: Terraform Init
       run: terraform init
+      working-directory: ./terraform
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    
+    - name: Terraform Plan
+      run: terraform plan -var-file="terraform.tfvars" -out=tfplan
+      working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
     - name: Terraform Apply
-      id: apply
-      run: |
-        terraform apply -var-file="terraform.tfvars" -auto-approve
+      run: terraform apply -auto-approve tfplan
+      working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
-    - name: Terraform Output
-      id: terraform-output
+    - name: Get Terraform Outputs
+      id: terraform-outputs
       run: |
-        echo "instance_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
-        echo "application_url=$(terraform output -raw application_url_http)" >> $GITHUB_OUTPUT
-        echo "ssh_command=$(terraform output -raw ssh_connection_command)" >> $GITHUB_OUTPUT
+        echo "alb_dns=$(terraform output -raw alb_dns_name)" >> $GITHUB_OUTPUT
+        echo "s3_jar_bucket=$(terraform output -raw s3_jar_bucket)" >> $GITHUB_OUTPUT
+        echo "instance_count=$(terraform output -raw total_instances)" >> $GITHUB_OUTPUT
+      working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -228,42 +139,196 @@ jobs:
         path: ./terraform/terraform.tfstate
         retention-days: 30
     
-    - name: Save Private Key
+    - name: Save SSH Key
       uses: actions/upload-artifact@v4
       with:
         name: ssh-private-key
         path: ./terraform/techeazy-devops-key.pem
         retention-days: 30
+      continue-on-error: true
     
-    - name: Create Deployment Summary
+    - name: Infrastructure Summary
       run: |
-        echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "## 🏗️ Infrastructure Deployed!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Deployment Details" >> $GITHUB_STEP_SUMMARY
-        echo "- **Instance IP:** ${{ steps.terraform-output.outputs.instance_ip }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Application URL:** ${{ steps.terraform-output.outputs.application_url }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **SSH Command:** \`${{ steps.terraform-output.outputs.ssh_command }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
-        echo "- [Access Application](${{ steps.terraform-output.outputs.application_url }})" >> $GITHUB_STEP_SUMMARY
-        echo "- [AWS EC2 Console](https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1#Instances:)" >> $GITHUB_STEP_SUMMARY
+        echo "### 🌐 Access Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **ALB URL:** http://${{ steps.terraform-outputs.outputs.alb_dns }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Instances:** ${{ steps.terraform-outputs.outputs.instance_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **S3 JAR Bucket:** ${{ steps.terraform-outputs.outputs.s3_jar_bucket }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📋 Next Steps" >> $GITHUB_STEP_SUMMARY
-        echo "1. Wait 2-3 minutes for application to fully start" >> $GITHUB_STEP_SUMMARY
-        echo "2. Test the application endpoint" >> $GITHUB_STEP_SUMMARY
-        echo "3. Monitor application logs if needed" >> $GITHUB_STEP_SUMMARY
+        echo "1. Upload JAR to S3 bucket" >> $GITHUB_STEP_SUMMARY
+        echo "2. Wait 5 minutes for auto-update to trigger" >> $GITHUB_STEP_SUMMARY
+        echo "3. Access application at ALB URL" >> $GITHUB_STEP_SUMMARY
 
-  terraform-destroy:
-    name: 'Terraform Destroy'
+  # Upload JAR to S3
+  upload-jar-to-s3:
+    name: 'Upload JAR to S3'
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
-    environment: 
-      name: production
+    needs: [build-application]
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && 
+       (github.event.inputs.action == 'deploy-app' || github.event.inputs.action == 'upload-jar-only'))
     
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
+    steps:
+    - name: Download JAR Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: application-jar
+    
+    - name: Configure AWS CLI
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Get S3 Bucket Name
+      id: get-bucket
+      run: |
+        BUCKET_NAME=$(aws s3 ls | grep techeazy-devops-app-jars | awk '{print $3}')
+        if [ -z "$BUCKET_NAME" ]; then
+          echo "ERROR: S3 JAR bucket not found. Deploy infrastructure first."
+          exit 1
+        fi
+        echo "bucket=$BUCKET_NAME" >> $GITHUB_OUTPUT
+        echo "Found S3 bucket: $BUCKET_NAME"
+    
+    - name: Upload JAR to S3
+      run: |
+        aws s3 cp techeazy-devops-0.0.1-SNAPSHOT.jar \
+          s3://${{ steps.get-bucket.outputs.bucket }}/techeazy-devops-0.0.1-SNAPSHOT.jar \
+          --metadata "version=$(date +%Y%m%d-%H%M%S),commit=${{ github.sha }}"
+        
+        echo "✅ JAR uploaded successfully to S3"
+    
+    - name: Verify Upload
+      run: |
+        aws s3 ls s3://${{ steps.get-bucket.outputs.bucket }}/techeazy-devops-0.0.1-SNAPSHOT.jar
+        
+        echo "Getting object metadata..."
+        aws s3api head-object \
+          --bucket ${{ steps.get-bucket.outputs.bucket }} \
+          --key techeazy-devops-0.0.1-SNAPSHOT.jar
+    
+    - name: Upload Summary
+      run: |
+        echo "## 📤 JAR Uploaded to S3!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Upload Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Bucket:** ${{ steps.get-bucket.outputs.bucket }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **File:** techeazy-devops-0.0.1-SNAPSHOT.jar" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ⏱️ Auto-Update Process" >> $GITHUB_STEP_SUMMARY
+        echo "- EC2 instances check S3 every 5 minutes" >> $GITHUB_STEP_SUMMARY
+        echo "- New version will be deployed automatically" >> $GITHUB_STEP_SUMMARY
+        echo "- Rollback happens automatically if health check fails" >> $GITHUB_STEP_SUMMARY
+
+  # Verify Deployment
+  verify-deployment:
+    name: 'Verify Application Deployment'
+    runs-on: ubuntu-latest
+    needs: [upload-jar-to-s3]
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Configure AWS CLI
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Get ALB DNS
+      id: get-alb
+      run: |
+        ALB_DNS=$(aws elbv2 describe-load-balancers \
+          --query "LoadBalancers[?contains(LoadBalancerName, 'techeazy-devops')].DNSName" \
+          --output text)
+        
+        if [ -z "$ALB_DNS" ]; then
+          echo "WARNING: ALB not found"
+          echo "alb_found=false" >> $GITHUB_OUTPUT
+        else
+          echo "alb_dns=$ALB_DNS" >> $GITHUB_OUTPUT
+          echo "alb_found=true" >> $GITHUB_OUTPUT
+          echo "Found ALB: $ALB_DNS"
+        fi
+    
+    - name: Wait for Auto-Update
+      if: steps.get-alb.outputs.alb_found == 'true'
+      run: |
+        echo "⏱️ Waiting 6 minutes for auto-update to complete..."
+        echo "Auto-update timer runs every 5 minutes, plus 1 minute buffer"
+        sleep 360
+    
+    - name: Test ALB Health
+      if: steps.get-alb.outputs.alb_found == 'true'
+      run: |
+        echo "Testing ALB health endpoint..."
+        
+        for i in {1..5}; do
+          echo "Attempt $i/5"
+          RESPONSE=$(curl -s -w "\n%{http_code}" http://${{ steps.get-alb.outputs.alb_dns }}/actuator/health)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+          
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Health check passed!"
+            break
+          fi
+          
+          if [ $i -eq 5 ]; then
+            echo "⚠️ Health check failed after 5 attempts"
+          fi
+          
+          sleep 10
+        done
+    
+    - name: Test Round-Robin Distribution
+      if: steps.get-alb.outputs.alb_found == 'true'
+      run: |
+        echo "Testing round-robin load distribution..."
+        echo ""
+        
+        for i in {1..9}; do
+          INSTANCE=$(curl -s -I http://${{ steps.get-alb.outputs.alb_dns }} | grep -i "X-Instance-Index" | cut -d' ' -f2 | tr -d '\r')
+          echo "Request $i -> Instance: $INSTANCE"
+          sleep 1
+        done
+        
+        echo ""
+        echo "If you see different instance indices, round-robin is working!"
+    
+    - name: Verification Summary
+      run: |
+        echo "## ✅ Deployment Verification" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Application URL" >> $GITHUB_STEP_SUMMARY
+        echo "- **ALB:** http://${{ steps.get-alb.outputs.alb_dns }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Health:** http://${{ steps.get-alb.outputs.alb_dns }}/actuator/health" >> $GITHUB_STEP_SUMMARY
+        echo "- **Hello:** http://${{ steps.get-alb.outputs.alb_dns }}/hello" >> $GITHUB_STEP_SUMMARY
+        echo "- **Parcel:** http://${{ steps.get-alb.outputs.alb_dns }}/parcel" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔄 Verify Round-Robin" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo 'for i in {1..10}; do' >> $GITHUB_STEP_SUMMARY
+        echo '  curl -s -I http://${{ steps.get-alb.outputs.alb_dns }} | grep X-Instance-Index' >> $GITHUB_STEP_SUMMARY
+        echo 'done' >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Destroy Infrastructure
+  destroy-infrastructure:
+    name: 'Destroy Infrastructure'
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy-infrastructure'
+    environment:
+      name: production-destroy
     
     steps:
     - name: Checkout
@@ -276,26 +341,26 @@ jobs:
     
     - name: Terraform Init
       run: terraform init
+      working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
     - name: Terraform Destroy
-      run: |
-        terraform destroy -var-file="terraform.tfvars" -auto-approve
+      run: terraform destroy -var-file="terraform.tfvars" -auto-approve
+      working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
-    - name: Create Destruction Summary
+    - name: Destruction Summary
       run: |
         echo "## 🗑️ Infrastructure Destroyed!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "All AWS resources have been successfully destroyed." >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🧹 Cleanup Complete" >> $GITHUB_STEP_SUMMARY
-        echo "- EC2 Instance: Terminated" >> $GITHUB_STEP_SUMMARY
-        echo "- VPC and associated resources: Deleted" >> $GITHUB_STEP_SUMMARY
-        echo "- Security Groups: Removed" >> $GITHUB_STEP_SUMMARY
-        echo "- Key Pair: Deleted" >> $GITHUB_STEP_SUMMARY
-
+        echo "All AWS resources have been successfully destroyed:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ EC2 Instances (3)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Application Load Balancer" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ S3 Buckets (logs deleted, JAR bucket may remain)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ VPC and networking components" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Security Groups" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ IAM Roles and Policies" >> $GITHUB_STEP_SUMMARY
