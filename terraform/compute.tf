@@ -55,6 +55,8 @@ locals {
     aws_region         = var.aws_region
     jar_file_name      = var.jar_file_name
     instance_id_token  = "INSTANCE_ID_PLACEHOLDER"
+    auto_update_script_content = file("${path.module}/scripts/auto-update.sh")
+
   })
 }
 
