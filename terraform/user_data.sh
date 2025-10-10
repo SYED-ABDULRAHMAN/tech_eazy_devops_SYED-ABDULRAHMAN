@@ -53,9 +53,9 @@ chown -R ubuntu:ubuntu /opt/app
 chown -R ubuntu:ubuntu /var/log/app
 
 # Download auto-update script from user data template
-cat > /opt/app/scripts/auto-update.sh << 'AUTOUPDATE_SCRIPT'
+cat > /opt/app/scripts/auto-update.sh << 'EOF'
 ${auto_update_script_content}
-AUTOUPDATE_SCRIPT
+EOF
 
 # Substitute variables in auto-update script
 sed -i "s/\$${s3_jar_bucket}/${s3_jar_bucket}/g" /opt/app/scripts/auto-update.sh
