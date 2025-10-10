@@ -61,7 +61,7 @@ variable "root_volume_size" {
 variable "create_key_pair" {
   description = "Whether to create a new key pair or use an existing one"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "existing_key_name" {
@@ -93,7 +93,7 @@ variable "jar_file_name" {
 variable "create_elastic_ip" {
   description = "Whether to create and assign an Elastic IP"
   type        = bool
-  default     = True
+  default     = false
 }
 
 # Networking Configuration
