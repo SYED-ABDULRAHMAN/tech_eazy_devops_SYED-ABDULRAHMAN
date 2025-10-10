@@ -1,3 +1,35 @@
+# AWS Configuration
+variable "aws_region" {
+  type        = string
+  default     = "us-east-1"
+  description = "AWS region where resources will be created"
+}
+
+# Project Configuration
+variable "project_name" {
+  type        = string
+  description = "Project name used for naming resources"
+  default     = "techeazy-devops"
+}
+
+variable "environment" {
+  description = "Deployment environment (e.g., dev, staging, prod)"
+  type        = string
+  default     = "dev"
+}
+
+# EC2 Configuration
+variable "instance_count" {
+  description = "Number of EC2 instances to create"
+  type        = number
+  default     = 3
+  
+  validation {
+    condition     = var.instance_count >= 1 && var.instance_count <= 10
+    error_message = "Instance count must be between 1 and 10."
+  }
+}
+
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
@@ -25,18 +57,6 @@ variable "root_volume_size" {
   default     = 20
 }
 
-variable "aws_region" {
-  type        = string
-  default     = "us-east-1"
-  description = "AWS region where resources will be created"
-}
-
-variable "project_name" {
-  type        = string
-  description = "Project name used for naming resources"
-}
-
-
 # Key Pair Configuration
 variable "create_key_pair" {
   description = "Whether to create a new key pair or use an existing one"
@@ -60,7 +80,13 @@ variable "github_repo_url" {
 variable "app_port" {
   description = "Port on which the application will run"
   type        = number
-  default     = 8080
+  default     = 80
+}
+
+variable "jar_file_name" {
+  description = "Name of the JAR file in S3"
+  type        = string
+  default     = "techeazy-devops-0.0.1-SNAPSHOT.jar"
 }
 
 # Elastic IP Configuration
@@ -69,6 +95,7 @@ variable "create_elastic_ip" {
   type        = bool
   default     = false
 }
+
 # Networking Configuration
 variable "vpc_cidr" {
   description = "CIDR block for the VPC"
@@ -77,16 +104,9 @@ variable "vpc_cidr" {
 }
 
 variable "public_subnet_cidr" {
-  description = "CIDR block for the public subnet"
+  description = "CIDR block for the public subnet (will be auto-calculated for multi-AZ)"
   type        = string
-  default     = "10.0.1.0/24"
-}
-
-# Environment Tagging
-variable "environment" {
-  description = "Deployment environment (e.g., dev, staging, prod)"
-  type        = string
-  default     = "dev"
+  default     = "10.0.0.0/16"
 }
 
 # Security Group Access
@@ -97,12 +117,7 @@ variable "allowed_ssh_cidr" {
 }
 
 variable "allowed_http_cidr" {
-  description = "CIDR blocks allowed to access HTTP/HTTPS (ports 80, 443, 8080)"
+  description = "CIDR blocks allowed to access HTTP/HTTPS (ports 80, 443)"
   type        = list(string)
   default     = ["0.0.0.0/0"]
-}
-variable "s3_bucket_name" {
-  description = "Name of the S3 bucket for logs"
-  type        = string
-  default     = "my-app-logs-bucket-142825327"
 }
