@@ -61,7 +61,7 @@ variable "root_volume_size" {
 variable "create_key_pair" {
   description = "Whether to create a new key pair or use an existing one"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "existing_key_name" {
