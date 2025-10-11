@@ -347,7 +347,8 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
     - name: Terraform Destroy
-      run: terraform destroy -var-file="terraform.tfvars" -auto-approve
+      run: terraform destroy -var-file="terraform.tfvars" -auto-approve   || echo "Ignoring destroy errors"
+
       working-directory: ./terraform
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
