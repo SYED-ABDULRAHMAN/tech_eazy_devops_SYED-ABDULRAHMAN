@@ -182,42 +182,28 @@ locals {
     aws_region      = var.aws_region
   }))
 }
+# Security Group for Load Balancer
+resource "aws_security_group" "lb_sg" {
+  name        = "${var.project_name}-lb-sg"
+  description = "Security group for Application Load Balancer"
+  vpc_id      = aws_vpc.main.id
 
-# Create EC2 instance
-resource "aws_instance" "app_server" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
-  key_name               = var.create_key_pair ? aws_key_pair.app_key[0].key_name : var.existing_key_name
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
-  subnet_id              = aws_subnet.public.id
-  user_data              = local.user_data
-  iam_instance_profile   = aws_iam_instance_profile.app_instance_profile.name
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-
-  root_block_device {
-    volume_type = var.root_volume_type
-    volume_size = var.root_volume_size
-    encrypted   = true
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name        = "${var.project_name}-app-server"
-    Environment = var.environment
-  }
-
-  # Ensure instance is ready before considering it created
-  depends_on = [aws_internet_gateway.main,    aws_iam_instance_profile.app_instance_profile]
-}
-
-# Elastic IP for the instance (optional)
-resource "aws_eip" "app_eip" {
-  count      = var.create_elastic_ip ? 1 : 0
-  instance   = aws_instance.app_server.id
-  domain     = "vpc"
-  depends_on = [aws_internet_gateway.main]
-
-  tags = {
-    Name        = "${var.project_name}-eip"
+    Name        = "${var.project_name}-lb-sg"
     Environment = var.environment
   }
 }

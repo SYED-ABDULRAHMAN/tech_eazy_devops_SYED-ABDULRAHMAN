@@ -3,8 +3,8 @@ name: 'Terraform AWS EC2 Deployment'
 on:
   push:
     branches:
-      - main
-      - develop
+      - feature/add-scaling
+
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-deploy.yml'
@@ -214,9 +214,12 @@ jobs:
     - name: Terraform Output
       id: terraform-output
       run: |
-        echo "instance_ip=$(terraform output -raw instance_public_ip)" >> $GITHUB_OUTPUT
-        echo "application_url=$(terraform output -raw application_url_http)" >> $GITHUB_OUTPUT
-        echo "ssh_command=$(terraform output -raw ssh_connection_command)" >> $GITHUB_OUTPUT
+        echo "lb_dns=$(terraform output -raw lb_dns_name)" >> $GITHUB_OUTPUT
+
+    - name: Deployment Summary
+      run: |
+        echo "## 🚀 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "- **Load Balancer URL:** http://${{ steps.terraform-output.outputs.lb_dns }}" >> $GITHUB_STEP_SUMMARY
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -280,9 +283,14 @@ jobs:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     
-    - name: Terraform Destroy
-      run: |
-        terraform destroy -var-file="terraform.tfvars" -auto-approve
+    - name: Destroy ASG first
+      run: terraform destroy -var-file="terraform.tfvars" -auto-approve -target=aws_autoscaling_group.app_asg
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Destroy all remaining resources
+      run: terraform destroy -var-file="terraform.tfvars" -auto-approve
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -298,4 +306,3 @@ jobs:
         echo "- VPC and associated resources: Deleted" >> $GITHUB_STEP_SUMMARY
         echo "- Security Groups: Removed" >> $GITHUB_STEP_SUMMARY
         echo "- Key Pair: Deleted" >> $GITHUB_STEP_SUMMARY
-

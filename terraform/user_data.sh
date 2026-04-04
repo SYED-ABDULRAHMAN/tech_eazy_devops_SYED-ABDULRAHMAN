@@ -299,3 +299,103 @@ nginx -t && systemctl restart nginx
 systemctl enable nginx
 
 echo "=== Deployment completed successfully: $(date) ==="
+
+APP_PORT=${app_port}
+BUCKET_NAME=${s3_bucket_name}
+JAR_PREFIX="techeazy-devops"  # prefix of the jar file
+APP_DIR="/opt/app"
+JAR_PATH="$APP_DIR/app.jar"
+AWS_REGION=${aws_region}
+
+# Install dependencies
+apt-get update -y
+apt-get install -y openjdk-21-jdk awscli
+
+# Create application directory
+mkdir -p $APP_DIR
+cd $APP_DIR
+
+# Fetch the latest JAR from S3
+LATEST_JAR=$(aws s3 ls s3://$BUCKET_NAME/ --region $AWS_REGION | grep ".jar" | sort | tail -n 1 | awk '{print $4}')
+if [ -z "$LATEST_JAR" ]; then
+  echo "No JAR found in S3 bucket: $BUCKET_NAME"
+  exit 1
+fi
+
+echo "Downloading latest JAR: $LATEST_JAR"
+aws s3 cp s3://$BUCKET_NAME/$LATEST_JAR $JAR_PATH --region $AWS_REGION
+
+# Create systemd service for app
+cat > /etc/systemd/system/app.service << EOF
+[Unit]
+Description=Spring Boot Application
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=$APP_DIR
+ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java -jar $JAR_PATH --server.port=$APP_PORT
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable app
+systemctl start app
+
+echo "Application started successfully on port $APP_PORT"
+
+# Create a script for periodic JAR check
+cat > /usr/local/bin/update_app_jar.sh << 'EOF'
+#!/bin/bash
+set -e
+
+APP_DIR="/opt/app"
+JAR_PATH="$APP_DIR/app.jar"
+BUCKET_NAME="${s3_bucket_name}"
+AWS_REGION="${aws_region}"
+
+cd $APP_DIR
+
+# Get currently running JAR checksum
+if [ -f "$JAR_PATH" ]; then
+  CURRENT_SUM=$(md5sum "$JAR_PATH" | awk '{print $1}')
+else
+  CURRENT_SUM=""
+fi
+
+# Find latest JAR in S3
+LATEST_JAR=$(aws s3 ls s3://$BUCKET_NAME/ --region $AWS_REGION | grep ".jar" | sort | tail -n 1 | awk '{print $4}')
+if [ -z "$LATEST_JAR" ]; then
+  echo "No JAR found in S3 bucket"
+  exit 0
+fi
+
+# Download latest jar temporarily
+aws s3 cp s3://$BUCKET_NAME/$LATEST_JAR /tmp/latest.jar --region $AWS_REGION
+
+NEW_SUM=$(md5sum /tmp/latest.jar | awk '{print $1}')
+
+if [ "$CURRENT_SUM" != "$NEW_SUM" ]; then
+  echo "New JAR version detected: $LATEST_JAR"
+  systemctl stop app
+  mv /tmp/latest.jar $JAR_PATH
+  chown ubuntu:ubuntu $JAR_PATH
+  systemctl start app
+  echo "$(date): Updated to new JAR $LATEST_JAR" >> /var/log/app_update.log
+else
+  echo "$(date): No new JAR detected" >> /var/log/app_update.log
+  rm -f /tmp/latest.jar
+fi
+EOF
+
+chmod +x /usr/local/bin/update_app_jar.sh
+
+# Add cron job to check every 5 minutes
+( crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/update_app_jar.sh >> /var/log/app_update.log 2>&1" ) | crontab -
+
+echo "Cron job created to check for new JAR every 5 minutes"

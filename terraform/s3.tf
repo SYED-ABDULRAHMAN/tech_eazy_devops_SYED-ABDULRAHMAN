@@ -23,3 +23,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs_lifecycle" {
     }
   }
 }
+
+# -----------------------------
+# New bucket for storing JAR file
+# -----------------------------
+resource "aws_s3_bucket" "app_jar_bucket" {
+  bucket        = var.app_jar_bucket_name
+  force_destroy = true
+}
+
+# -----------------------------
+# New bucket for ALB logs
+# -----------------------------
+resource "aws_s3_bucket" "elb_logs_bucket" {
+  bucket        = var.elb_logs_bucket_name
+  force_destroy = true
+}

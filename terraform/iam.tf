@@ -57,3 +57,51 @@ resource "aws_iam_instance_profile" "app_instance_profile" {
   name = "${var.project_name}-app-instance-profile"
   role = aws_iam_role.s3_write_role.name
 }
+# EC2 role for reading JAR from app_jar_bucket
+resource "aws_iam_role" "ec2_role" {
+  name = "ec2-read-jar-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+# Policy for EC2 -> Read JAR
+resource "aws_iam_role_policy" "ec2_read_jar_policy" {
+  name = "ec2-read-jar-policy"
+  role = aws_iam_role.ec2_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:GetObject"]
+      Resource = "${aws_s3_bucket.app_jar_bucket.arn}/*"
+    }]
+  })
+}
+
+# Policy for EC2 -> Write logs
+resource "aws_iam_role_policy" "ec2_write_logs_policy" {
+  name = "ec2-write-logs-policy"
+  role = aws_iam_role.ec2_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:PutObject"]
+      Resource = "${aws_s3_bucket.elb_logs_bucket.arn}/*"
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "ec2_instance_profile" {
+  name = "ec2-instance-profile"
+  role = aws_iam_role.ec2_role.name
+}
+
